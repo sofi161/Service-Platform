@@ -1,12 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -14,13 +7,187 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  USER
+  PROVIDER
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+}
+
 model User {
+  id          Int      @id @default(autoincrement())
+  email       String   @unique
+  password    String
+  name        String
+  phone       String?
+  avatar      String?
+  role        UserRole @default(USER)
+  isVerified  Boolean  @default(false)
+  latitude    Float?
+  longitude   Float?
+  address     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Provider specific fields
+  providerProfile ProviderProfile?
+  
+  // Bookings as customer
+  bookingsAsCustomer Booking[] @relation("CustomerBookings")
+  
+  // Messages
+  sentMessages     Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
+  
+  // Reviews given
+  reviewsGiven Review[] @relation("ReviewsGiven")
+  
+  @@map("users")
+}
+
+model ProviderProfile {
+  id             Int     @id @default(autoincrement())
+  userId         Int     @unique
+  businessName   String
+  description    String?
+  experience     Int?    // years
+  isAvailable    Boolean @default(true)
+  averageRating  Float   @default(0)
+  totalReviews   Int     @default(0)
+  responseTime   Int     @default(60) // minutes
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  services Service[]
+  bookings Booking[]
+  reviews  Review[]   @relation("ProviderReviews")
+  
+  @@map("provider_profiles")
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  icon        String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  services Service[]
+  
+  @@map("categories")
+}
+
+model Service {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
+  basePrice   Float
+  duration    Int     // minutes
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  categoryId Int
+  providerId Int
+  
+  category Category        @relation(fields: [categoryId], references: [id])
+  provider ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  bookings Booking[]
+  
+  @@map("services")
+}
+
+model Booking {
+  id              Int           @id @default(autoincrement())
+  bookingId       String        @unique @default(uuid())
+  scheduledDate   DateTime
+  scheduledTime   String        // "14:30"
+  duration        Int           // minutes
+  totalPrice      Float
+  status          BookingStatus @default(PENDING)
+  notes           String?
+  cancellationReason String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  customerId Int
+  serviceId  Int
+  providerId Int
+  
+  customer User            @relation("CustomerBookings", fields: [customerId], references: [id])
+  service  Service         @relation(fields: [serviceId], references: [id])
+  provider ProviderProfile @relation(fields: [providerId], references: [id])
+  
+  messages Message[]
+  review   Review?
+  
+  @@map("bookings")
+}
+
+model Message {
+  id        Int         @id @default(autoincrement())
+  content   String
+  type      MessageType @default(TEXT)
+  fileUrl   String?
+  isRead    Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  
+  senderId   Int
+  receiverId Int
+  bookingId  Int?
+  
+  sender   User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiver User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  booking  Booking? @relation(fields: [bookingId], references: [id])
+  
+  @@map("messages")
+}
+
+model Review {
   id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  name      String
+  rating    Int      // 1-5
+  comment   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  
+  bookingId  Int      @unique
+  customerId Int
+  providerId Int
+  
+  booking  Booking         @relation(fields: [bookingId], references: [id])
+  customer User            @relation("ReviewsGiven", fields: [customerId], references: [id])
+  provider ProviderProfile @relation("ProviderReviews", fields: [providerId], references: [id])
+  
+  @@map("reviews")
+}
 
-  @@map("users")
+model Availability {
+  id        Int      @id @default(autoincrement())
+  dayOfWeek Int      // 0=Sunday, 1=Monday, etc.
+  startTime String   // "09:00"
+  endTime   String   // "18:00"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  providerId Int
+  // provider   ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  
+  @@map("availability")
 }
